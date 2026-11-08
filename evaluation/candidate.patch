@@ -1,0 +1,20 @@
+--- a/src/reservations.ts
++++ b/src/reservations.ts
+@@ -14,6 +14,4 @@
+   try {
+-    const stock = await client.query(
+-      `UPDATE inventory
+-       SET available = available - 1
+-       WHERE item_id = $1 AND available > 0`,
++    const stock = await client.query<{ available: number }>(
++      "SELECT available FROM inventory WHERE item_id = $1",
+       [itemId],
+@@ -22,3 +20,7 @@
+     let result: ReservationResult = { status: "out_of_stock" };
+-    if (stock.rowCount === 1) {
++    const available = stock.rows[0]?.available ?? 0;
++    if (available > 0) {
++      await client.query("UPDATE inventory SET available = $2 WHERE item_id = $1", [
++        itemId, available - 1,
++      ]);
+       const reservation = await client.query<{ reservation_id: number }>(

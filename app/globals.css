@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #172e34;
+  --color-muted: #53666b;
+  --color-line: #dce5e3;
+  --color-paper: #f3f7f6;
+  --color-pine: #173e38;
+  --color-mint: #daf4e6;
+  --font-sans: system-ui, sans-serif;
+}
+
+@layer base {
+  body { @apply min-h-screen bg-paper text-ink antialiased; }
+  :focus-visible { @apply outline-2 outline-offset-4 outline-teal-600; }
+  th { @apply border-b border-line bg-paper px-4 py-3 text-left text-xs font-semibold tracking-wide text-muted; }
+  td { @apply border-b border-line px-4 py-3 text-sm; }
+  tbody tr:last-child td { @apply border-b-0; }
+  input { @apply w-full rounded-lg border border-line bg-white px-3 py-2 text-sm; }
+  label { @apply text-sm font-semibold; }
+}
+
+@layer components {
+  .panel { @apply rounded-2xl border border-line bg-white shadow-xs; }
+  .table-wrap { @apply overflow-x-auto rounded-2xl border border-line bg-white; }
+  .button { @apply inline-flex min-h-9 items-center justify-center rounded-lg bg-pine px-3 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50; }
+  .eyebrow { @apply text-xs font-bold tracking-[0.17em] text-teal-800 uppercase; }
+  .field { @apply grid gap-1.5; }
+}
