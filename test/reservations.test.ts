@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { after, before, beforeEach, test } from "node:test";
+import { after, before, beforeEach, test, type TestContext } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { Client, Pool } from "pg";
 import { createSession, endSession, readSession, type Actor } from "../src/auth.ts";
@@ -51,18 +51,24 @@ async function backendPid(client: Client): Promise<number> {
   return rows[0].pid;
 }
 
-async function waitForBlock(waitingPid: number, blockingPid: number): Promise<void> {
+function reportGrade(t: TestContext, id: string, score: number, evidence: object) {
+  if (process.env.FIELDSTOCK_GRADE === "1") {
+    t.diagnostic(`fieldstock-grade ${JSON.stringify({ id, score, evidence })}`);
+  }
+}
+
+async function waitForBlock(waitingPid: number, blockingPid: number): Promise<boolean> {
   const deadline = performance.now() + 3_000;
   do {
     const { rows } = await observer.query<{ blocked: boolean }>(
       "SELECT $1::integer = ANY(pg_blocking_pids($2::integer)) AS blocked",
       [blockingPid, waitingPid],
     );
-    if (rows[0].blocked) return;
+    if (rows[0].blocked) return true;
     await setTimeout(20);
   } while (performance.now() < deadline);
 
-  assert.fail(`Expected PostgreSQL session ${waitingPid} to wait for ${blockingPid}`);
+  return false;
 }
 
 test("overlapping attempts for the last unit leave exactly one reservation", async (t) => {
@@ -70,6 +76,8 @@ test("overlapping attempts for the last unit leave exactly one reservation", asy
     backendPid(alice), backendPid(bob), backendPid(observer),
   ]);
   const attempts: Promise<ReservationResult>[] = [];
+  let settled: PromiseSettledResult<ReservationResult>[];
+  let overlap = false;
   await observer.query("BEGIN");
   try {
     // Pause Alice's insert while her transaction still holds the inventory row.
@@ -83,36 +91,66 @@ test("overlapping attempts for the last unit leave exactly one reservation", asy
     const bobAttempt = reserveOne(bob, itemId, "user-bob");
     attempts.push(bobAttempt);
     void bobAttempt.catch(() => {});
-    await waitForBlock(bobPid, alicePid);
-    t.diagnostic(`pg_blocking_pids(${bobPid}) included Alice's session ${alicePid}`);
+    overlap = await waitForBlock(bobPid, alicePid);
+    if (overlap) t.diagnostic(`pg_blocking_pids(${bobPid}) included Alice's session ${alicePid}`);
   } finally {
     await observer.query("ROLLBACK");
-    await Promise.allSettled(attempts);
+    settled = await Promise.allSettled(attempts);
   }
 
-  const [winner, loser] = await Promise.all(attempts);
+  const [aliceResult, bobResult] = settled.map((attempt) =>
+    attempt.status === "fulfilled" ? attempt.value : { status: "rejected" as const },
+  );
+  const aliceWon = aliceResult?.status === "reserved";
+  const winner = aliceWon ? aliceResult : bobResult;
+  const loser = aliceWon ? bobResult : aliceResult;
   const stock = await observer.query("SELECT available FROM inventory WHERE item_id = $1", [itemId]);
   const reservations = await observer.query("SELECT reservation_id, item_id, user_id FROM reservations");
-  t.diagnostic(`Observed Alice=${winner?.status}, Bob=${loser?.status}, reservations=${reservations.rowCount}, available=${stock.rows[0]?.available}`);
-  assert.ok(winner?.status === "reserved");
-  assert.deepEqual(loser, { status: "out_of_stock" });
-  assert.deepEqual(stock.rows, [{ available: 0 }]);
-  assert.deepEqual(reservations.rows, [
-    { reservation_id: winner.reservationId, item_id: itemId, user_id: "user-alice" },
-  ]);
+  t.diagnostic(`Observed Alice=${aliceResult?.status}, Bob=${bobResult?.status}, reservations=${reservations.rowCount}, available=${stock.rows[0]?.available}`);
+  let score = 0;
+  try {
+    assert.ok(winner?.status === "reserved");
+    assert.deepEqual(loser, { status: "out_of_stock" });
+    assert.deepEqual(stock.rows, [{ available: 0 }]);
+    assert.deepEqual(reservations.rows, [
+      { reservation_id: winner.reservationId, item_id: itemId, user_id: aliceWon ? "user-alice" : "user-bob" },
+    ]);
+    score = overlap ? 2 : 1;
+    assert.ok(overlap, "Expected PostgreSQL to confirm the contested write");
+  } finally {
+    reportGrade(t, "RES-01", score, {
+      overlap, alice: aliceResult?.status, bob: bobResult?.status,
+      available: stock.rows[0]?.available, reservations: reservations.rows,
+    });
+  }
 });
 
 test("a failed reservation insert rolls back the stock decrement", async (t) => {
-  await assert.rejects(reserveOne(alice, itemId, "unknown-user"), { code: "23503" });
+  const attempt = await reserveOne(alice, itemId, "unknown-user").then(
+    (result) => ({ status: result.status }),
+    (error: unknown) => ({ errorCode: error instanceof Error && "code" in error ? error.code : null }),
+  );
 
   const stock = await observer.query("SELECT available FROM inventory WHERE item_id = $1", [itemId]);
   const reservations = await observer.query("SELECT reservation_id FROM reservations");
-  assert.deepEqual(stock.rows, [{ available: 1 }]);
-  assert.deepEqual(reservations.rows, []);
-  t.diagnostic("PostgreSQL rejected the unknown user. Stock stayed at 1 and no reservation persisted.");
+  const evidence = { ...attempt, available: stock.rows[0]?.available, reservations: reservations.rowCount };
+  let score = 0;
+  let retryStatus = "unverified";
+  try {
+    assert.deepEqual(attempt, { errorCode: "23503" });
+    assert.deepEqual(stock.rows, [{ available: 1 }]);
+    assert.deepEqual(reservations.rows, []);
+    t.diagnostic("PostgreSQL rejected the unknown user. Stock stayed at 1 and no reservation persisted.");
+    reportGrade(t, "RES-02", 1, { ...evidence, retry: retryStatus });
 
-  const retry = await reserveOne(alice, itemId, "user-alice");
-  assert.equal(retry.status, "reserved");
+    retryStatus = "rejected";
+    const retry = await reserveOne(alice, itemId, "user-alice");
+    retryStatus = retry.status;
+    assert.equal(retryStatus, "reserved");
+    score = 2;
+  } finally {
+    reportGrade(t, "RES-02", score, { ...evidence, retry: retryStatus });
+  }
 });
 
 test("sessions reject invalid credentials and expired or revoked tokens", async () => {

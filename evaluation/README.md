@@ -26,6 +26,26 @@ The [reference correction](../src/reservations.ts) makes `available > 0` part of
 
 The test proves the observed last-unit schedule against real PostgreSQL. It does not measure contention at scale or cover multi-item reservations.
 
+## Grade a patch automatically
+
+Run this from a checkout with Docker and Docker Compose installed. The input is a Git text patch against the current checkout that modifies only `src/reservations.ts`. The patch can contain multiple diff sections for that file. The runner applies it in a disposable eval container and runs the existing integration suite against a fresh PostgreSQL database. The checkout and grader files stay intact.
+
+```sh
+sh evaluation/grade-patch.sh evaluation/candidate.patch
+```
+
+Standard output contains one JSON report. For a completed grade, `criteria` lists the score and evidence for RES-01 and RES-02, and `tests` summarizes the full integration suite. Build logs and test failures go to standard error. The bundled double-booking patch scores 2/4 and exits with code 1.
+
+| Exit code | Status | Meaning |
+| --- | --- | --- |
+| `0` | `accepted` | Both criteria earned 2/2 and the full suite passed. |
+| `1` | `rejected` | At least one criterion showed a contract violation and earned 0/2. |
+| `2` | `needs_evidence` | The grader awarded partial credit and needs more evidence. |
+| `2` | `invalid_patch` | The patch was unreadable, out of scope, or failed to apply. |
+| `2` | `unverified` | The grader could not finish verification or the full suite did not pass despite both reservation criteria passing. |
+
+Use `accepted` as the factory gate. Use the report to decide whether to revise the patch or rerun the check. The lock wait test uses Fieldstock's transaction schedule. A different valid concurrency design may need a separate test to demonstrate overlap. This runner assumes trusted patch authors because the candidate code and tests run in the same container.
+
 ## Reproduce with Docker
 
 Clone the repository and open its root. The eval needs Docker and the Docker Compose plugin. Each command starts a fresh eval container with a disposable PostgreSQL database. The app stack can be stopped or running.

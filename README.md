@@ -21,6 +21,8 @@ flowchart LR
     C -->|"0/2"| F["Revise patch"]
 ```
 
+Run the eval and grade a reservation patch with `sh evaluation/grade-patch.sh PATH_TO_PATCH`. The command returns a JSON verdict and evidence for the caller to use in its merge decision. See the [automatic grading instructions](evaluation/README.md#grade-a-patch-automatically).
+
 ### Fieldstock Docker architecture
 
 ```mermaid
