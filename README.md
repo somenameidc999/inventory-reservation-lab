@@ -16,19 +16,19 @@ flowchart LR
 
     subgraph Compose["Docker Compose"]
         subgraph Demo["Demo stack"]
-            App["Next.js app<br/>TypeScript and Tailwind CSS"]
-            Postgres[("PostgreSQL<br/>Sessions, inventory, reservations")]
+            App["Next.js app"]
+            DB[("PostgreSQL<br/>Sessions, inventory, reservations")]
             Redis[("Redis<br/>30-second report cache")]
-            App -->|"Sign-in, reservations, and report queries"| Postgres
-            App -->|"Read and cache report snapshots"| Redis
+            App -->|"Read and write application data"| DB
+            App -->|"Cache report snapshots"| Redis
         end
 
-        subgraph Eval["One-off eval container"]
-            Implementation["Reference or patched candidate"]
-            Suite["Reservation integration suite"]
-            Fixture[("Disposable PostgreSQL")]
-            Implementation --> Suite
-            Suite -->|"Observe lock wait and check committed rows"| Fixture
+        subgraph Eval["Isolated eval container"]
+            Code["Reference or patched candidate"]
+            Suite["Reservation integration tests"]
+            TestDB[("Disposable PostgreSQL")]
+            Code --> Suite
+            Suite -->|"Observe lock wait and check committed rows"| TestDB
         end
     end
 
