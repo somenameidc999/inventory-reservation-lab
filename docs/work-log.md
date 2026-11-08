@@ -22,4 +22,19 @@ The project owner asked Codex to proceed through the remaining scope before disc
 
 **Evaluation outcome.** The AI-authored candidate scored 2/4 on the two reservation criteria. The same integration suite passed six tests and failed the last-unit test. PostgreSQL recorded two reservations after both requests reported success. The conditional update in the reference passed all seven tests. The [sample evaluation](../evaluation/README.md) explains the defect and how to reproduce it.
 
-**Environment limits.** The local setup and the browser workflows ran with native PostgreSQL and Redis. Docker Compose configuration validation passed. The container images did not finish downloading during verification, so the Docker alternative was not run.
+**Initial environment.** The local setup and browser workflows ran with native PostgreSQL and Redis. Docker Compose configuration validation passed. The initial verification ended before the container images finished downloading.
+
+## Docker verification
+
+Codex built and ran the Next.js production app in Docker with Node.js 24.22.2, PostgreSQL 16.15, and Redis 7.4.12. A temporary Compose override added the app container and a PostgreSQL socket for the existing integration tests. Chrome ran the two browser tests from the host against the app container. Both passed. A direct PostgreSQL query confirmed one Field Kit reservation and zero units available. Redis reported 29 seconds remaining on the report cache key.
+
+The reference and the candidate ran the same seven integration tests from a container against a separate database in the PostgreSQL container.
+
+| Implementation | Lock evidence | Observed outcome | Suite |
+| --- | --- | --- | --- |
+| Reference | `pg_blocking_pids(224)` included Alice's session `223` | Alice received `reserved`. Bob received `out_of_stock`. PostgreSQL stored one reservation with zero stock. | 7 passed, 0 failed |
+| Candidate | `pg_blocking_pids(229)` included Alice's session `228` | Both requests received `reserved`. PostgreSQL stored two reservations with zero stock. | 6 passed, 1 failed |
+
+The candidate failed the last-unit assertion. Codex removed the temporary containers and volumes after the checks.
+
+The repository now includes the Docker app and the isolated eval runner. Codex followed the Docker instructions from a clean clone. Both browser tests passed against the Compose app. The reference exited with code `0` and seven passing tests. The patched candidate exited with code `1` and failed only the last-unit test. The eval observed the lock wait in both runs and read one committed reservation for the reference and two for the candidate.

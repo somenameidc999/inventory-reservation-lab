@@ -26,7 +26,33 @@ The [reference correction](../src/reservations.ts) makes `available > 0` part of
 
 The test proves the observed last-unit schedule against real PostgreSQL. It does not measure contention at scale or cover multi-item reservations.
 
-## Reproduce
+## Reproduce with Docker
+
+Clone the repository and open its root. The eval needs Docker and the Docker Compose plugin. Each command starts a fresh eval container with a disposable PostgreSQL database. The app stack can be stopped or running.
+
+```sh
+git clone https://github.com/somenameidc999/inventory-reservation-lab.git
+cd inventory-reservation-lab
+```
+
+Run the reference implementation. Expect exit code `0` and seven passing tests.
+
+```sh
+docker compose run --build --rm -T eval
+```
+
+Run the flawed candidate. The patch applies inside the temporary container. Expect exit code `1`, six passing tests, and a failure in the last-unit test. Exit code `2` means the patch failed to apply.
+
+```sh
+docker compose run --build --rm -T eval sh -c '
+  git apply evaluation/candidate.patch || exit 2
+  exec npm test
+'
+```
+
+Look for the `pg_blocking_pids` diagnostic in both runs. It confirms that Bob waited on Alice. The reference reports `Bob=out_of_stock, reservations=1, available=0`. The candidate reports `Bob=reserved, reservations=2, available=0`.
+
+## Reproduce with local PostgreSQL
 
 From a clean checkout, create a disposable worktree and run the shared suite with the candidate patch. Expect one failing test. Reverse the patch and run the same command again. Expect seven passing tests.
 
