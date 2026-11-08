@@ -10,6 +10,19 @@ The local reference is complete for the [assignment scope](docs/assignment.md). 
 
 ## Architecture
 
+### Software factory
+
+```mermaid
+flowchart LR
+    A["Agent patch"] --> B["Run eval"]
+    B --> C["Grade evidence"]
+    C -->|"2/2"| D["Merge"]
+    C -->|"1/2"| E["Gather evidence"]
+    C -->|"0/2"| F["Revise patch"]
+```
+
+### Fieldstock requirements and grading
+
 ```mermaid
 flowchart TD
     Requirement["Business requirement<br/>The storeroom can promise its last unit to only one person."]
