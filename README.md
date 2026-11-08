@@ -21,19 +21,31 @@ flowchart LR
     C -->|"0/2"| F["Revise patch"]
 ```
 
-### Fieldstock requirements and grading
+### Fieldstock Docker architecture
 
 ```mermaid
-flowchart TD
-    Requirement["Business requirement<br/>The storeroom can promise its last unit to only one person."]
-    Criteria["Acceptance criteria<br/>Two people request the last unit at the same time.<br/>One succeeds and the other gets out_of_stock.<br/>PostgreSQL stores one reservation and shows zero units left."]
-    Eval["Eval<br/>Make the requests overlap and verify that one waited on the other.<br/>Check both responses and the stored rows."]
-    Grade["Grading"]
+flowchart LR
+    Browser["Staff and admin browsers"]
 
-    Requirement --> Criteria --> Eval --> Grade
-    Grade --> Full["2/2<br/>The evidence shows overlap and the correct outcome."]
-    Grade --> Partial["1/2<br/>The outcome is correct and overlap is unverified."]
-    Grade --> Fail["0/2<br/>Both people get a reservation."]
+    subgraph Compose["Docker Compose"]
+        subgraph Demo["Demo stack"]
+            App["Next.js app"]
+            DB[("PostgreSQL<br/>Sessions, inventory, reservations")]
+            Redis[("Redis<br/>30-second report cache")]
+            App -->|"Read and write application data"| DB
+            App -->|"Cache report snapshots"| Redis
+        end
+
+        subgraph Eval["Isolated eval container"]
+            Code["Reference or patched candidate"]
+            Suite["Reservation integration tests"]
+            TestDB[("Disposable PostgreSQL")]
+            Code --> Suite
+            Suite -->|"Observe lock wait and check committed rows"| TestDB
+        end
+    end
+
+    Browser -->|"HTTP on localhost"| App
 ```
 
 ## Run with Docker
